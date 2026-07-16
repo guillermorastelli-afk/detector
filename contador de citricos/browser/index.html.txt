@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contador de Cítricos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 10px;
+        }
+        h1 { color: #333; font-size: 1.5rem; }
+        #canvas-container {
+            position: relative;
+            margin: 10px auto;
+            width: 100%;
+            max-width: 400px;
+        }
+        canvas {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .marcador {
+            display: flex;
+            justify-content: space-around;
+            margin: 15px auto;
+            max-width: 400px;
+        }
+        .box {
+            padding: 15px;
+            border-radius: 10px;
+            width: 40%;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .limones { background-color: #f1c40f; } /* Amarillo */
+        .naranjas { background-color: #e67e22; } /* Naranja */
+    </style>
+    <!-- Importamos el cargador de WebAssembly de Edge Impulse -->
+    <script src="edge-impulse-standalone.js"></script>
+</head>
+<body>
+
+    <h1>Detector y Contador de Cítricos</h1>
+
+    <div id="canvas-container">
+        <!-- Aquí se mostrará la cámara con los recuadros dibujados -->
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="marcador">
+        <div class="box limones">
+            🍋 Limones: <span id="txt-limones">0</span>
+        </div>
+        <div class="box naranjas">
+            🍊 Naranjas: <span id="txt-naranjas">0</span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let video = null;
+
+        // Inicializar la cámara del celular (cámara trasera)
+        async function startCamera() {
+            video = document.createElement('video');
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" }, // Fuerza la cámara trasera
+                audio: false
+            });
+            video.srcObject = stream;
+            video.play();
+            
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                processFrame();
+            };
+        }
+
+        // Procesar cada cuadro de video
+        async function processFrame() {
+            // Dibujar el video en el lienzo (canvas)
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Obtener los datos de los píxeles para el modelo
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // --- INFERENCIA ---
+            // Llamamos a la biblioteca de Edge Impulse pasándole la imagen
+            let classifier = new EdgeImpulseClassifier();
+            await classifier.init();
+            let result = await classifier.classify(imgData.data);
+
+            // Reiniciamos los contadores para este fotograma (conteo estático)
+            let totalLimones = 0;
+            let totalNaranjas = 0;
+
+            if (result.bounding_boxes) {
+                result.bounding_boxes.forEach(box => {
+                    // Filtramos detecciones con baja seguridad (menor al 50%)
+                    if (box.value > 0.5) {
+                        
+                        // Dibujar recuadro de detección
+                        ctx.strokeStyle = box.label === 'limon' ? '#f1c40f' : '#e67e22';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+                        // Contar según la etiqueta del modelo
+                        if (box.label === 'limon') {
+                            totalLimones++;
+                        } else if (box.label === 'naranja') {
+                            totalNaranjas++;
+                        }
+                    }
+                });
+            }
+
+            // Actualizar los números en la pantalla
+            document.getElementById('txt-limones').innerText = totalLimones;
+            document.getElementById('txt-naranjas').innerText = totalNaranjas;
+
+            // Volver a procesar el siguiente fotograma
+            requestAnimationFrame(processFrame);
+        }
+
+        // Iniciar todo al cargar la página
+        window.onload = startCamera;
+    </script>
+</body>
+</html>
